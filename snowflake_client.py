@@ -1,6 +1,7 @@
 
 import os
 import re
+
 import snowflake.connector
 from dotenv import load_dotenv
 
@@ -13,6 +14,20 @@ ALLOWED_TABLES = {
 
 
 def get_connection():
+    required = [
+        "SNOWFLAKE_ACCOUNT",
+        "SNOWFLAKE_USER",
+        "SNOWFLAKE_PASSWORD",
+        "SNOWFLAKE_WAREHOUSE",
+        "SNOWFLAKE_ROLE",
+    ]
+
+    missing = [key for key in required if not os.getenv(key)]
+    if missing:
+        raise ValueError(
+            "Missing Snowflake configuration: " + ", ".join(missing)
+        )
+
     return snowflake.connector.connect(
         account=os.getenv("SNOWFLAKE_ACCOUNT"),
         user=os.getenv("SNOWFLAKE_USER"),
@@ -34,24 +49,26 @@ def validate_sql(sql):
         "",
         sql,
         flags=re.IGNORECASE,
-    ).strip().rstrip(";")
+    ).strip().rstrip(";").strip()
 
-    if not re.match(r"^SELECT\b", sql, re.IGNORECASE):
+    if not re.match(r"(?is)^SELECT\b", sql):
         raise ValueError("Only SELECT queries are allowed.")
 
     if ";" in sql or "--" in sql or "/*" in sql or "*/" in sql:
-        raise ValueError("Unsafe SQL rejected.")
+        raise ValueError(
+            "Multiple statements or SQL comments are not allowed."
+        )
 
-    # Reject modifying statements and multiple-query tricks.
     forbidden = re.compile(
         r"\b(INSERT|UPDATE|DELETE|DROP|ALTER|CREATE|TRUNCATE|"
-        r"MERGE|COPY|PUT|REMOVE|GRANT|REVOKE|CALL|EXECUTE)\b",
+        r"MERGE|COPY|PUT|REMOVE|GRANT|REVOKE|CALL|EXECUTE|"
+        r"USE|EXEC|INTO)\b",
         re.IGNORECASE,
     )
+
     if forbidden.search(sql):
         raise ValueError("Unsafe SQL operation rejected.")
 
-    # Allow only the two approved tables.
     tables = re.findall(
         r"\b(?:FROM|JOIN)\s+([A-Z0-9_.]+)",
         sql,
@@ -59,7 +76,7 @@ def validate_sql(sql):
     )
 
     if not tables:
-        raise ValueError("No approved table found in query.")
+        raise ValueError("No approved table found.")
 
     for table in tables:
         if table.upper() not in ALLOWED_TABLES:
@@ -79,8 +96,6 @@ def run_query(sql):
 
         columns = [item[0] for item in cursor.description]
         rows = cursor.fetchall()
-
-        # Capture Snowflake query ID for evidence.
         query_id = cursor.sfqid
 
         return columns, rows, query_id

@@ -1,5 +1,6 @@
-streamlit
-pandas
-snowflake-connector-python
-python-dotenv
-requests
+streamlit==1.66.0
+pandas==3.0.6
+snowflake-connector-python==5.0.0
+python-dotenv==1.2.4
+requests==2.34.2
+pytest==9.1.1
